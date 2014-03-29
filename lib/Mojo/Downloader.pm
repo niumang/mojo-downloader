@@ -6,8 +6,6 @@ use Momo;
 use File::Basename qw(dirname);
 use YAML qw(Dump);
 use Mojo::UserAgent;
-use Mojo::Collection;
-use Mojo::Log;
 use Coro;
 use Coro::Semaphore;
 use AnyEvent;
@@ -19,7 +17,11 @@ our $VERSION = 0.1;
 
 has ua => sub { Mojo::UserAgent->new };
 has interval     => 1;
-has cv           => sub { AnyEvent->condvar };
+has cv           => sub { 
+    my $condvar = AnyEvent->condvar;
+    $condvar->cb( sub { shift->recv } );
+    $condvar;
+};
 has max_currency => 10;
 has sem          => sub { Coro::Semaphore->new( shift->max_currency ) };
 has cookie_file  => sub { $ENV{MOJO_COOKIE_FILE} };
@@ -41,7 +43,7 @@ sub new {
                     $tx->res->content->asset->move_to($file);
                     if ( -s $file == $content_lenth ) {
                         print "downloaded $url => $file success!\n";
-                        $r->{$file} = 1;
+                        $r->{$file} = 1 if ref $r eq ref {};
                     }
                     else {
                         warn "file => $file not fully downloaded \n";
@@ -49,7 +51,7 @@ sub new {
                 }
             }
             else {
-                warn "download url => " . $tx->req->url . " failed";
+                warn "download url => " . $tx->req->url . " ".$tx->res->code."failed";
             }
         }
     );
@@ -61,6 +63,10 @@ sub set_max_currency {
     my ( $self, $limit ) = @_;
     $self->sem( Coro::Semaphore->new($limit) );
     $self->max_currency($limit);
+}
+
+sub run{
+    shift->cv->recv;
 }
 
 sub _async_request {
